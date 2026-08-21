@@ -1,0 +1,56 @@
+{
+  "step": 2,
+  "mode": "parsestop",
+  "task": "add_cot",
+  "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+  "cache_enabled": true,
+  "n": 3,
+  "accuracy": 1.0,
+  "avg_tokens": 6.0,
+  "avg_total_latency_s": 2.093202348666665,
+  "early_stop_rate": 0.0,
+  "rows": [
+    {
+      "id": 0,
+      "a": 30,
+      "b": 13,
+      "answer": 43,
+      "gold": 43,
+      "label": 43,
+      "pred": 43,
+      "correct": true,
+      "tokens": 6,
+      "latency_s": 2.679751381000017,
+      "stopped_early": false,
+      "cache_enabled": true
+    },
+    {
+      "id": 1,
+      "a": 10,
+      "b": 33,
+      "answer": 43,
+      "gold": 43,
+      "label": 43,
+      "pred": 43,
+      "correct": true,
+      "tokens": 6,
+      "latency_s": 1.775650378999984,
+      "stopped_early": false,
+      "cache_enabled": true
+    },
+    {
+      "id": 2,
+      "a": 18,
+      "b": 17,
+      "answer": 35,
+      "gold": 35,
+      "label": 35,
+      "pred": 35,
+      "correct": true,
+      "tokens": 6,
+      "latency_s": 1.8242052859999944,
+      "stopped_early": false,
+      "cache_enabled": true
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "step": 0,
+  "backend": "hf",
+  "model_id": "Qwen/Qwen2.5-0.5B-Instruct",
+  "load_s": 10.041819096999994,
+  "smoke_text": "OK",
+  "smoke_tokens": 2,
+  "smoke_latency_s": 1.083784473999998,
+  "tokens_per_sec": 1.8453853584176771,
+  "gate": "PASS",
+  "rows": []
+}
