@@ -1,142 +1,101 @@
-# Validation review
+# Validation Review
 
-What was checked, how, what broke, what was changed.
+What was checked, how, what broke, and what got changed.
 
-Tests do not load a language model. They use `FakeBackend` so the
-control flow, extractors, and gates can be executed here.
+Tests don't load a real language model. They use `FakeBackend` instead, so the control flow, extractors, and gates can all run without one.
 
 ```
 PYTHONPATH=. python3 tests/test_early_exit.py
 ```
 
-## Issues found
 
-### I1 — Step-2 gate is file presence (original F1)
+## Issues Found
 
-**How verified:** `save()` writes `step1_baseline.summary.json` before
-`main` inspects `gate`. Original `main` then does
-`if not base_path.exists()`. A FAIL baseline still unlocks step 2.
+### I1: Step-2 gate is just file presence (original F1)
 
-**Correction:** `check_step1_gate_passed` reads JSON and requires
-`gate == "PASS"`. Test: FAIL artifact blocks; PASS artifact allows;
-missing file blocks.
+**How verified:** `save()` writes `step1_baseline.summary.json` before `main` ever checks the `gate` value. The original `main` only checks `if not base_path.exists()`. So a FAIL baseline still unlocks step 2.
 
-### I2 — `--k 0` infinite loop (original F2)
+**Correction:** `check_step1_gate_passed` reads the JSON and requires `gate == "PASS"`. Test: a FAIL artifact blocks it, a PASS artifact allows it, a missing file blocks it too.
 
-**How verified:** loop condition `used < MAX` with `n_tok = max_tokens`
-and exit `if n_tok < k`. For `k <= 0`, `used` never increases and
-`n_tok < k` is false. v2 test hung the original function for 3s.
+### I2: `--k 0` causes an infinite loop (original F2)
 
-**Correction:** validate `k >= 1` and `stability >= 1` in the runner
-and in the CLI. Test: `ValueError` immediately.
+**How verified:** the loop condition is `used < MAX`, with `n_tok = max_tokens`, and it exits `if n_tok < k`. When `k <= 0`, `used` never increases, and `n_tok < k` is never true. The v2 test hung the original function for 3 seconds before I caught this.
 
-### I3 — HF default model is an MLX repo (original F3)
+**Correction:** validate `k >= 1` and `stability >= 1`, both in the runner and in the CLI. Test: raises `ValueError` right away.
 
-**How verified:** docstring `python … --backend hf --step 0` with
-`DEFAULT_MODEL = "mlx-community/…-4bit"`.
+### I3: HF default model is actually an MLX repo (original F3)
 
-**Correction:** `default_model_for("hf")` is `Qwen/Qwen2.5-0.5B-Instruct`.
+**How verified:** the docstring says `python … --backend hf --step 0`, but `DEFAULT_MODEL = "mlx-community/…-4bit"`.
 
-### I4 — Step 0 accepts any non-empty string (original F4)
+**Correction:** `default_model_for("hf")` is now `Qwen/Qwen2.5-0.5B-Instruct`.
 
-**How verified:** `gate = "PASS" if text.strip() else "FAIL"` on
-`"banana banana"`.
+### I4: Step 0 accepts any non-empty string (original F4)
 
-**Correction:** `"ok" in text.strip().lower()`.
+**How verified:** `gate = "PASS" if text.strip() else "FAIL"` passes even on `"banana banana"`.
 
-### I5 — Load failures are raw tracebacks (original F5)
+**Correction:** now checks `"ok" in text.strip().lower()`.
 
-**Correction:** `build_backend` wrapped in CLI with a SystemExit that
-names backend, model, and which packages to install.
+### I5: Load failures show raw Python tracebacks (original F5)
 
-### I6 — `TypeError` from stream_generate is swallowed (original F6)
+**Correction:** `build_backend` is now wrapped in the CLI with a clean `SystemExit` that names the backend, the model, and which packages need installing.
 
-**Correction:** print the exception to stderr before the non-stream
-fallback.
+### I6: `TypeError` from stream_generate gets silently swallowed (original F6)
 
-### I7 — Global `random.seed` is dead (original F7)
+**Correction:** the exception now gets printed to stderr before falling back to the non-stream path.
 
-**Correction:** only `random.Random(seed)` inside the example factory.
+### I7: Global `random.seed` does nothing (original F7)
 
-### I8 — Addition scored with TRUE/FALSE
+**Correction:** only `random.Random(seed)` inside the example factory actually matters now, so that's the only place setting it.
 
-**How verified:** `extract_tf("ANSWER: 37") is None`. `label` is
-`"37"` or the comment says dummy. `accuracy` is therefore ~0 even
-when the model is correct. The built-in gate cannot pass on the
-real task.
+### I8: Addition scored with a TRUE/FALSE extractor
 
-**Correction:** tasks `add_direct` / `add_cot` / `add_check` use
-`extract_kind="int"` and `gold = a+b`. Baseline test: all
-`ANSWER: {gold}` → accuracy 1.0, GATE=PASS.
+**How verified:** `extract_tf("ANSWER: 37") is None`. The `label` field is either `"37"` or a comment admitting it's a dummy value. So `accuracy` comes out near 0 even when the model is fully correct. The gate can never pass on the real task, no matter what.
 
-### I9 — Addition step 2 KeyError on `seq`
+**Correction:** the `add_direct` / `add_cot` / `add_check` tasks now use `extract_kind="int"` and `gold = a+b`. Baseline test: every `ANSWER: {gold}` response now gives accuracy 1.0, GATE=PASS.
 
-**How verified:** `run_early_exit` in `*_add.py`,
-`*_add_cot.py`, `*_add_check_baseline.py` calls
-`REASON_PROMPT.format(seq=ex["seq"])`. Examples have `a` and `b`.
+### I9: Addition step 2 crashes with a KeyError on `seq`
 
-**Correction:** `task.format_prompt(ex)` uses the fields the task
-owns. Test: `run_probe_and_stop` on `add_cot` does not raise.
+**How verified:** `run_early_exit` in `*_add.py`, `*_add_cot.py`, and `*_add_check_baseline.py` calls `REASON_PROMPT.format(seq=ex["seq"])`. But these examples only have `a` and `b`, no `seq` field at all.
 
-### I10 — Parse-stop v1 cuts multi-digit answers
+**Correction:** `task.format_prompt(ex)` now uses whatever fields that specific task actually owns. Test: `run_probe_and_stop` on `add_cot` no longer raises.
 
-**How verified:** `ANSWER_RE = ANSWER:\s*(-?\d+)` is greedy. After
-token `"ANSWER: 3"` the regex matches. v1 breaks. If the next token
-is `"7"`, the saved answer is 3.
+### I10: Parse-stop v1 cuts off multi-digit answers early
 
-**Correction:** `answer_complete_int` requires `m.end() < len(acc)`
-(a non-digit after the number), matching the v2 comment. Test
-streams `… ANSWER: 3` + `7` + `\nCheck` and expects pred 37.
+**How verified:** `ANSWER_RE = ANSWER:\s*(-?\d+)` is greedy, but it fires too soon. After the token `"ANSWER: 3"`, the regex already matches, so v1 stops right there. If the next token would have been `"7"`, the saved answer is wrongly just `3`.
 
-### I11 — Unstable last probe used as the answer
+**Correction:** `answer_complete_int` now requires `m.end() < len(acc)`, meaning a non-digit character has to show up after the number first. This matches what the v2 comment already claimed. Test: streams `… ANSWER: 3` then `7` then `\nCheck`, and expects the prediction to correctly be 37.
 
-**How verified:** `final = last or extract_tf(reason)`. If the last
-probe returned something but `streak < stability` and the loop
-exited on EOS, that probe still wins.
+### I11: An unstable last probe still gets used as the final answer
 
-**Correction:** `final = last` only when `stopped`; otherwise parse
-the reason text. Test: one wrong probe + EOS → pred is not the
-wrong probe value.
+**How verified:** `final = last or extract_tf(reason)`. So if the last probe returned some answer, but the streak never reached `stability` and the loop only exited because of EOS, that shaky probe answer still wins by default.
 
-### I12 — Count-only tasks still gold-label TRUE/FALSE
+**Correction:** `final = last` only when the loop actually `stopped` cleanly. Otherwise, it parses the reasoning text directly instead. Test: one wrong probe followed by EOS, and the prediction correctly avoids that wrong probe's value.
 
-**How verified:** `*_3b.py` prompt asks for `COUNT: <number>` but
-`label` is TRUE/FALSE and scoring uses `extract_tf`.
+### I12: Count-only tasks were still scored as TRUE/FALSE
 
-**Correction:** `bitcount_3b` and `bitcount_len8_countonly` set
-`gold` to the integer count and `extract_kind="int"`.
+**How verified:** the `*_3b.py` prompt asks the model for `COUNT: <number>`, but the `label` field is TRUE/FALSE, and scoring runs through `extract_tf` anyway. These two things don't match at all.
 
-### I13 — Seventeen copies of the same 400 lines
+**Correction:** `bitcount_3b` and `bitcount_len8_countonly` now set `gold` to the actual integer count, with `extract_kind="int"`.
 
-**How verified:** diff the attachments; they differ in `OUT_DIR`,
-`REASON_PROMPT`, `SEQ_LEN`, and occasionally `MAX_REASON_TOKENS`.
+### I13: Seventeen near-identical copies of the same 400 lines
 
-**Correction:** `TASKS` registry + one CLI. Old filenames in
-`scripts/` delegate so existing run notes still work.
+**How verified:** diffing the files shows they only differ in `OUT_DIR`, `REASON_PROMPT`, `SEQ_LEN`, and occasionally `MAX_REASON_TOKENS`. Everything else is duplicated code.
 
-### I14 — Step-2 filename collides across `--cache` / `--no-cache` runs
+**Correction:** replaced with a `TASKS` registry plus one single CLI. The old filenames now live in `scripts/` and just delegate to the new code, so old run notes still work unchanged.
 
-**How verified:** `save(task.out_dir, f"step2_k{args.k}_s{args.stability}",
-result)` did not encode `args.cache`. A `--no-cache` run with the same
-`--k`/`--stability` silently overwrote the `--cache` run's JSON — same
-failure mode as I13 (no run id), now hitting step 2 across cache
-variants instead of step 1 across script copies. Caught after a
-`--cache` run's `step2_k4_s2.json` was overwritten by a later
-`--no-cache` run; the cache-on numbers were only recoverable from that
-session's printed summary.
+### I14: Step-2 filenames collide between `--cache` and `--no-cache` runs
 
-**Correction:** filename includes a cache tag:
-`f"step2_k{args.k}_s{args.stability}_{'cache' if args.cache else 'nocache'}"`.
+**How verified:** `save(task.out_dir, f"step2_k{args.k}_s{args.stability}", result)` never encoded whether `args.cache` was on or off. So a `--no-cache` run with the same `--k`/`--stability` would silently overwrite the `--cache` run's JSON. Same root problem as I13 (no run id), just showing up at step 2 across cache variants instead of at step 1 across script copies. This one was caught the hard way: a `--cache` run's `step2_k4_s2.json` got silently overwritten by a later `--no-cache` run. The cache-on numbers were only recoverable from that earlier session's printed summary, not from disk.
 
-## Issues deferred (not bugs in the algorithm statement)
+**Correction:** the filename now includes a cache tag: `f"step2_k{args.k}_s{args.stability}_{'cache' if args.cache else 'nocache'}"`.
 
-- No KV-cache reuse (`generate_continue` re-encodes the prefix).
-  Documented in backends and REVIEW §9. Fixing it is a backend
-  change, not a gate/extract change.
-- Stream-event token counts vs tokenizer counts. Same as original.
-- n=20, seed=42, no confidence intervals.
+## Issues Deferred (not bugs in the algorithm itself)
 
-## Test map
+- No KV-cache reuse (`generate_continue` re-encodes the whole prefix every time). This is documented in the backends and in REVIEW section 9. Fixing it is a backend-level change, not a gate or extractor fix.
+- Stream-event token counts don't match tokenizer counts exactly. Same as the original behavior.
+- n=20, seed=42, no confidence intervals reported.
+
+## Test Map
 
 | Check | Issue |
 |---|---|
@@ -154,15 +113,12 @@ session's printed summary.
 | gate FAIL/PASS/missing | I1 |
 | hf default not mlx-community | I3 |
 
-## What “new codes for all code” means here
+## What "New Code for All Code" Means Here
 
-Re-emitting 17 slightly patched copies would pass a surface review
-and recreate I13. The replacement for each original file is:
+Just re-emitting 17 slightly patched copies would pass a surface-level review, but it would just recreate I13 all over again. The actual replacement for each original file is:
 
 1. A task entry in `early_exit/tasks.py`
 2. Shared runners in `early_exit/steps.py`
 3. A `scripts/<old name>` wrapper
 
-Behavior that was *intentionally* different (prompts, seq length,
-budget 96 vs 256, parse-stop vs probe) is preserved as task or
-`--mode` data, not as a new program.
+Behavior that was *deliberately* different between the old scripts (prompts, sequence length, a budget of 96 vs. 256, parse-stop vs. probe) is kept, but as task data or a `--mode` flag, not as yet another separate program.
