@@ -1,9 +1,8 @@
-# Track 1 early-exit (revised)
+# Track 1 Early-Exit (Revised)
 
-Reproducing Certaindex/Dynasor-style confidence-based early stopping on a small local model (MLX, Apple Silicon) — and finding that "fewer tokens" and "less wall-clock time" are not the same claim. A model-probe stop signal cut tokens ~30% with zero wrong early stops, but *lost* on wall-clock time because the probe itself is a full extra generate call. A free, parse-based stop rule (no extra model call) cut tokens 49% and wall-clock 36% with no accuracy loss — but only on prompts that leave something after the answer to cut. Full write-up: [`NOTES.md`](NOTES.md).
+Reproducing Certaindex/Dynasor-style confidence-based early stopping on a small local model (MLX, Apple Silicon). Along the way, this found that "fewer tokens" and "less wall-clock time" are not the same claim. A model-probe stop signal cut tokens by about 30%, with zero wrong early stops. But it *lost* on wall-clock time, because the probe itself is a full extra generate call. A free, parse-based stop rule (no extra model call) cut tokens 49% and wall-clock 36%, with no accuracy loss. But that only works on prompts that leave something after the answer to cut. Full write-up: [`NOTES.md`](NOTES.md).
 
-One harness instead of 17 near-copies. Tasks differ in prompt, gold label,
-and extractor. Generation, gating, and I/O are shared.
+One harness instead of 17 near-copies. Tasks differ in prompt, gold label, and extractor. Generation, gating, and I/O are shared.
 
 ## Run
 
@@ -51,30 +50,21 @@ PYTHONPATH=. python3 tests/test_early_exit.py
 | add_cot | *_add_cot.py, *_add_probe.py, parsestop | a+b |
 | add_check | *_add_check_* | a+b |
 
-See `REVIEW.md` and `VALIDATION.md` for the architecture review and
-the before/after verification. See `NOTES.md` for the Track 1
-results write-up (counting-task limitation, LM-probe vs
-boundary-confirmed parse-stop, and the KV-cache follow-up).
+See `REVIEW.md` and `VALIDATION.md` for the architecture review and the before/after verification. See `NOTES.md` for the Track 1 results write-up: the counting-task limitation, LM-probe vs. boundary-confirmed parse-stop, and the KV-cache follow-up.
 
 ## Throughput comparison
 
-`reason tok/s` = generated answer tokens / wall. `prefix billed` is how
-many prompt tokens were forwarded (cold probe recounts the prefix every
-chunk). `vs base` / `vs cold` are example-rate ratios.
+`reason tok/s` is generated answer tokens divided by wall time. `prefix billed` is how many prompt tokens were forwarded (a cold probe recounts the prefix every chunk). `vs base` and `vs cold` are example-rate ratios.
 
-CPU run, `Qwen/Qwen2.5-0.5B-Instruct`, `add_cot`, n = 3, k = 4, s = 2
-(not the 3B MLX laptop numbers):
+CPU run, `Qwen/Qwen2.5-0.5B-Instruct`, `add_cot`, n = 3, k = 4, s = 2 (not the 3B MLX laptop numbers):
 
 | run | cache | tok | wall/ex | ex/s | reason tok/s | prefix billed (n=3) | vs base | vs cold |
 |---|---|---|---|---|---|---|---|---|
-| baseline | on | 6.0 | 2.08 s | 0.481 | 2.88 | 417 | 1.00× | 2.53× |
-| probe k=4 s=2 | on | 6.0 | 3.28 s | 0.305 | 1.83 | one 139-token prefill + suffixes | 0.63× | 1.60× |
-| probe k=4 s=2 | off | 7.0 | 5.25 s | 0.190 | 1.33 | 1803 | 0.40× | 1.00× |
-| parsestop | on | 6.0 | 2.09 s | 0.478 | 2.87 | — | 0.99× | 2.51× |
+| baseline | on | 6.0 | 2.08 s | 0.481 | 2.88 | 417 | 1.00x | 2.53x |
+| probe k=4 s=2 | on | 6.0 | 3.28 s | 0.305 | 1.83 | one 139-token prefill + suffixes | 0.63x | 1.60x |
+| probe k=4 s=2 | off | 7.0 | 5.25 s | 0.190 | 1.33 | 1803 | 0.40x | 1.00x |
+| parsestop | on | 6.0 | 2.09 s | 0.478 | 2.87 | n/a | 0.99x | 2.51x |
 
-`--compare` reprints this from `*.summary.json`. Cache-on probe is not on
-disk (same filename as cold); numbers above are from that session’s printout.
+`--compare` reprints this from `*.summary.json`. The cache-on probe run isn't saved to disk (it shares a filename with the cold run). The numbers above come from that session's printout.
 
-Cache deleted repeated prefix work (1803 billed tokens vs 417). It did
-not beat one-shot decode: two 8-token probes still cost more than a
-6-token answer. Parse-stop matches baseline because the answer is last.
+Caching removed repeated prefix work (1803 billed tokens vs. 417). It did not beat one-shot decode: two 8-token probes still cost more than a 6-token answer. Parse-stop matches baseline because the answer comes last.
